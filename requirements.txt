@@ -1,0 +1,4 @@
+orjson~=3.6.7
+psycopg[binary]~=3.0.9
+requests~=2.27.1
+-e git+https://github.com/wpk-/aapi.git#egg=aapi~=0.2.2

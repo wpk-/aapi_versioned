@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/html">
+<head>
+    <meta charset="UTF-8">
+    <title>Amsterdam API mutaties</title>
+    <style type="text/css">
+* {
+    box-sizing: border-box;
+}
+
+html,body {
+    font-family: system-ui;
+    margin: 0;
+}
+
+main {
+    display: flex;
+    flex-flow: row wrap;
+}
+
+main > * {
+    padding: 2em;
+    flex: 1 0 100%;
+}
+
+h1 {
+    margin-top: 0;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+section {
+    display: flex;
+    flex-flow: row wrap;
+    overflow-x: auto;
+}
+
+table {
+    border-spacing: 0;
+    cursor: default;
+    flex: 0 1 100%;
+    text-align: right;
+}
+td:first-child {
+    text-align: left;
+}
+tbody td {
+    padding: .1rem .5rem;
+    white-space: nowrap;
+}
+tbody tr:hover,
+tbody tr.active {
+    background-color: #efefef;
+}
+
+.col-group-head,
+.col-head {
+    display: block;
+}
+.col-group-head,
+.col-group-start {
+    margin-left: 2rem;
+    padding-right: .5rem;
+}
+.col-group-head {
+    text-align: center;
+}
+.col-head {
+    border-bottom: black 1px solid;
+    font-style: italic;
+    padding: 0 .5rem;
+}
+
+.warning {
+    color: brown;
+}
+
+#jobs-table tr:first-child td:first-child {
+    padding-left: 0;
+}
+#jobs-table tbody tr:nth-child(n+2) {
+    color: darkslategrey;
+}
+#jobs-table tr:first-child .warning {
+    background-color: pink;
+}
+#jobs-table tbody.open {
+    background-color: #fafafa;
+}
+#jobs-table tbody.open .category-head {
+    font-weight: bold;
+}
+#jobs-table tbody.active:not(.open) tr:first-child {
+    background-color: #efefef;
+}
+#jobs-table tbody.open + tbody tr:first-child td {
+    padding-top: .5rem;
+}
+#jobs-table tbody:not(.open) tr:nth-child(n+2) {
+    display: none;
+}
+
+#records {
+    background-color: floralwhite;
+}
+#records tbody td.changed {
+    background-color: antiquewhite;
+}
+#records tbody tr:hover td.changed,
+#records tbody tr.active td.changed {
+    background-color: wheat;
+}
+    </style>
+    <script type="module">
+
+class Job {
+    constructor(id, target, status, error, created, deleted,
+                started, finished) {
+        this.id = parseInt(id)
+        this.target = `${target}`
+        this.status = `${status}`
+        this.error = `${error}`
+        this.created = parseInt(created)
+        this.deleted = parseInt(deleted)
+        this.started = new Date(started)
+        this.finished = finished ? new Date(finished) : null
+    }
+
+    get done() {
+        return this.status === 'done'
+    }
+
+    get duration() {
+        return this.finished ? (this.finished - this.started) / 1000 : NaN
+    }
+
+    get failed() {
+        return this.status === 'failed'
+    }
+
+    get running() {
+        return !(this.done || this.failed)
+    }
+
+    static validateFields(fields) {
+        const expected = ['id', 'target', 'status', 'error',
+                          'created', 'deleted', 'started', 'finished']
+        if (fields.length === expected.length
+            && fields.every((v, i) => expected[i] === v)) {
+            return
+        }
+        throw 'Invalid SyncLog fields.'
+    }
+}
+
+class JobStats {
+    constructor() {
+        this.total_done = 0
+        this.total_failed = 0
+        this.total_running = 0
+        this.total_created = 0
+        this.total_deleted = 0
+        this.all_run_times = []
+    }
+
+    add(job) {
+        this.total_done += job.done
+        this.total_failed += job.failed
+        this.total_running += job.running
+        this.total_created += job.created
+        this.total_deleted += job.deleted
+        if (!job.running)
+            this.all_run_times.push(job.duration)
+    }
+}
+
+class JobsTable {
+    constructor(table, modified) {
+        this.table = table || document.querySelector('#jobs-table')
+        this.job_template = document.querySelector('#template-job').content
+        this.cat_template = document.querySelector('#template-category').content
+
+        this.locale = {
+            weekday: 'short',
+            year: 'numeric', month: 'numeric', day: 'numeric',
+            hour: 'numeric', minute: 'numeric'
+        }
+
+        this.onMouseDown = this.onMouseDown.bind(this)
+        this.table.addEventListener('mousedown', this.onMouseDown)
+    }
+
+    buildCategory(category, jobs) {
+        const stats = new JobStats()
+
+        const tbody = this.cat_template.cloneNode(true).firstElementChild
+        const td = tbody.querySelectorAll('td')
+        const head = td[0].querySelector('.category-head')
+
+        tbody.dataset.category = category
+        tbody.append(...jobs.map(job => {
+            stats.add(job)
+            return this.buildJob(job)
+        }))
+
+        const min_time = Math.min(...stats.all_run_times)
+        const med_time = median(stats.all_run_times)
+        const max_time = Math.max(...stats.all_run_times)
+
+        head.textContent = category
+        td[1].textContent = stats.total_done
+        td[2].textContent = stats.total_failed
+        td[3].textContent = stats.total_running
+        td[4].textContent = stats.total_created
+        td[5].textContent = stats.total_deleted
+        td[6].textContent = formatSeconds(min_time)
+        td[7].textContent = formatSeconds(med_time)
+        td[8].textContent = formatSeconds(max_time)
+
+        // Highlight failed and crashed (running) jobs.
+        if (stats.total_failed > 0) {
+            td[2].classList.add('warning')
+        }
+        if (stats.total_running > 0) {
+            td[3].classList.add('warning')
+        }
+
+        // Highlight markable run times.
+        if (jobs.length >= 5) {
+            const dev = stats.all_run_times.map(x => Math.abs(x - med_time))
+            const mad = median(dev)
+            const lim = 3 * mad + 1
+
+            if (min_time < med_time - lim) {
+                td[6].classList.add('warning')
+            }
+            if (max_time > med_time + lim) {
+                td[8].classList.add('warning')
+            }
+
+            if (min_time < med_time - lim || max_time > med_time + lim) {
+                const warn_ids = new Set(
+                    jobs.filter((job, i) => dev[i] > lim)
+                        .map(job => `${job.id}`))
+
+                tbody.querySelectorAll('tr')
+                .forEach(tr => {
+                    if (warn_ids.has(tr.dataset.job)) {
+                        tr.querySelector('td:nth-child(9)')
+                        .classList.add('warning')
+                    }
+                })
+            }
+        }
+
+        return tbody
+    }
+
+    buildJob(job) {
+        const row = this.job_template.cloneNode(true).firstElementChild
+        const td = row.querySelectorAll('td')
+
+        row.dataset.job = job.id
+
+        td[0].textContent = job.id
+        td[1].textContent = job.started.toLocaleString('nl-NL', this.locale)
+        td[2].textContent = job.done ? 'done' : ''
+        td[3].textContent = job.failed ? 'failed' : ''
+        td[4].textContent = job.running ? 'running' : ''
+        td[5].textContent = job.created
+        td[6].textContent = job.deleted
+        td[8].textContent = job.duration ? formatSeconds(job.duration) : ''
+
+        if (job.failed) {
+            td[3].classList.add('warning')
+            td[3].setAttribute('title', job.error)
+        }
+        else if (job.running) {
+            td[4].classList.add('warning')
+            td[4].setAttribute('title', job.status)
+        }
+
+        return row
+    }
+
+    closeAll() {
+        this.table
+        .querySelectorAll('tbody.open')
+        .forEach(elm => elm.classList.remove('open'))
+    }
+
+    getState() {
+        return {record: this.table.dataset.job}
+    }
+
+    setState({job}) {
+        const old = this.table.dataset.job
+        this.table.dataset.job = job
+
+        if (job !== undefined && `${job}` !== old) {
+            const job_id = parseInt(job)
+            this.select(job_id)
+        }
+    }
+
+    onMouseDown(event) {
+        const tr = event.target.closest('tr')
+        const tbody = tr.closest('tbody')
+        const job_id = tr.dataset.job
+
+        if (job_id) {
+            this.setState({job: job_id})
+            this.table.dispatchEvent(
+                new CustomEvent('select', {detail: job_id}))
+        }
+        else if (tbody) {
+            // const category_id = tbody.dataset.category
+            this.toggleOpen(tbody)
+        }
+    }
+
+    render({fields, items}) {
+        Job.validateFields(fields)
+
+        const jobs = groupBy(items.map(x => new Job(...x)), 'target')
+
+        this.table.append(...
+            Object.entries(jobs).map(([k, v]) => this.buildCategory(k, v)))
+    }
+
+    select(job_id) {
+        const tr = this.table.querySelector(`tr[data-job="${job_id}"]`)
+
+        if (tr) {
+            const tbody = tr.closest('tbody')
+
+            this.selectRow(tr)
+            this.toggleOpen(tbody, true)
+        }
+        else {
+            console.error(`Invalid job ID: ${job_id}.`)
+        }
+    }
+
+    selectRow(tr) {
+        if (tr.classList.contains('active'))
+            return
+
+        this.table.querySelectorAll('.active')
+        .forEach(elm => elm.classList.remove('active'))
+        tr.classList.add('active')
+        tr.closest('tbody').classList.add('active')
+    }
+
+    toggleOpen(tbody, value) {
+        const is_open = tbody.classList.contains('open')
+
+        if (value === false || (value !== true && is_open)) {
+            tbody.classList.remove('open')
+        }
+        else if (!is_open) {
+            this.closeAll()
+            tbody.classList.add('open')
+        }
+    }
+}
+
+class RecordsTable {
+    constructor(table) {
+        this.table = table || document.querySelector('#records-table')
+
+        this.onMouseDown = this.onMouseDown.bind(this)
+        this.table.addEventListener('mousedown', this.onMouseDown)
+    }
+
+    static buildHeader(fields) {
+        const thead = document.createElement('thead')
+        const tpl_td = document.createElement('td')
+
+        tpl_td
+        .appendChild(document.createElement('span'))
+        .classList.add('col-head')
+
+        thead
+        .appendChild(document.createElement('tr'))
+        .append(...fields.map(_ => tpl_td.cloneNode(true)))
+
+        thead
+        .querySelectorAll('span')
+        .forEach((span, i) => span.textContent = fields[i])
+
+        thead
+        .querySelectorAll('span')[3]
+        .classList.add('col-group-start')
+
+        return thead
+    }
+
+    static buildBody(items, fields) {
+        const tbody = document.createElement('tbody')
+        const tpl_tr = document.createElement('tr')
+        const tpl_td = document.createElement('td')
+
+        tpl_tr.append(...fields.map(_ => tpl_td.cloneNode()))
+
+        let ix_id = fields.indexOf('id')
+        let last_item = items[0]
+
+        tbody.append(...items.map(item => {
+            const tr = tpl_tr.cloneNode(true)
+
+            tr.dataset.record = item[0]
+            tr.querySelectorAll('td')
+            .forEach((td, i) => {
+                td.textContent = item[i]
+                if (i > 2
+                        && ix_id > -1
+                        && item[ix_id] === last_item[ix_id]
+                        && item[i] !== last_item[i]) {
+                    td.classList.add('changed')
+                }
+            })
+            last_item = item
+
+            return tr
+        }))
+
+        return tbody
+    }
+
+    deselect() {
+        this.table.querySelectorAll('.active')
+        .forEach(elm => elm.classList.remove('active'))
+    }
+
+    getState() {
+        return {record: this.table.dataset.record}
+    }
+
+    setState({record}) {
+        const old = this.table.dataset.record
+        this.table.dataset.record = record
+
+        if (`${record}` !== old) {
+            const record_id = parseInt(record)
+
+            if (Number.isNaN(record_id)) {
+                this.deselect()
+            }
+            else {
+                this.select(record_id)
+            }
+        }
+    }
+
+    onMouseDown(event) {
+        const tr = event.target.closest('tr')
+        let record_id
+
+        if (tr.classList.contains('active')) {
+            record_id = null
+        }
+        else if (tr.dataset.record) {
+            record_id = tr.dataset.record
+        }
+        else {
+            return
+        }
+
+        this.setState({record: record_id})
+        this.table.dispatchEvent(
+            new CustomEvent('select', {detail: record_id}))
+    }
+
+    render({fields, items}) {
+        this.table.replaceChildren(
+            this.constructor.buildHeader(fields),
+            this.constructor.buildBody(items, fields)
+        )
+    }
+
+    select(record_id) {
+        const tr = this.table.querySelector(`tr[data-record="${record_id}"]`)
+
+        if (tr) {
+            this.selectRow(tr)
+        }
+        else {
+            console.error(`Invalid record ID: ${record_id}.`)
+        }
+    }
+
+    selectRow(tr) {
+        if (tr.classList.contains('active')) {
+            tr.classList.remove('active')
+        }
+        else {
+            this.deselect()
+            tr.classList.add('active')
+        }
+    }
+}
+
+
+class App {
+    /**
+     * Interactions:
+     * - window navigation --> onPopState
+     * - user clicks job --> onSelect
+     * - a call to load() --> load --> render
+     *
+     * Updates:
+     * - render() --> stats.render(), records.render()
+     */
+    constructor(root, default_state) {
+        const last_modified = root.querySelector('#last-modified')
+        const jobs_table = root.querySelector('#jobs-table')
+        const records_table = root.querySelector('#records-table')
+
+        this.root = root
+        this.last_modified = last_modified
+        this.jobs = new JobsTable(jobs_table)
+        this.records = new RecordsTable(records_table)
+
+        this.locale = {
+            weekday: 'long',
+            month: 'long', day: 'numeric',
+            hour: 'numeric', minute: 'numeric'
+        }
+
+        this.default_state = default_state
+        this.initState()
+
+        this.onPopState = this.onPopState.bind(this)
+        window.addEventListener('popstate', this.onPopState)
+
+        this.onJobChange = this.onJobChange.bind(this)
+        jobs_table.addEventListener('select', this.onJobChange)
+
+        this.onRecordChange = this.onRecordChange.bind(this)
+        records_table.addEventListener('select', this.onRecordChange)
+    }
+
+    getState() {
+        return {
+            job: this.root.dataset.job,
+            record: this.root.dataset.record,
+            src: this.root.dataset.src,
+        }
+    }
+
+    async setState(state) {
+        const old_state = this.getState()
+
+        if (old_state.src !== `${state.src}`) {
+            this.root.dataset.src = state.src
+
+            const data = await fetchJSON(state.src)
+            this.updateModified(data)
+            this.jobs.render(data)
+        }
+
+        if (state.job !== undefined && old_state.job !== `${state.job}`) {
+            this.root.dataset.job = state.job
+
+            const job_id = parseInt(state.job)
+            const promise = fetchJSON(`data/${job_id}.json`)
+
+            this.jobs.setState(state)
+            this.records.render(await promise)
+        }
+
+        if (old_state.record !== `${state.record}`) {
+            this.root.dataset.record = state.record
+
+            this.records.setState(state)
+        }
+    }
+
+    /**
+     * Builds the initial state from history, URL and default values
+     * and writes it to `window.history.state` (`replaceState`).
+     *
+     * It doesn't alter the URL. If the history contains a state that is
+     * in conflict with the URL this will not be solved. In this case the
+     * history state will be preferred.
+     */
+    initState() {
+        let state = null
+
+        if (window.history.state) {
+            state = window.history.state
+        }
+        else {
+            const query = `?${location.hash.substr(1)}`
+            const params = new URLSearchParams(query)
+
+            state = Object.fromEntries(params)
+        }
+
+        window.history.replaceState({
+            ...this.default_state,
+            ...state
+        }, '')
+
+        this.setState(window.history.state)
+    }
+
+    navigate(partial_state) {
+        const state = {
+            ...window.history.state,
+            ...partial_state,
+        }
+        const url = this.constructor.stateURL(state)
+
+        if (partial_state.hasOwnProperty('job') ||
+            partial_state.hasOwnProperty('src')) {
+            window.history.pushState(state, '', url)
+        }
+        else {
+            // Selecting a record in the records table shouldn't add an
+            // extra entry to the history.
+            window.history.replaceState(state, '', url)
+        }
+
+        this.setState(state)
+    }
+
+    onJobChange(event) {
+        const job_id = event.detail
+        this.navigate({job: job_id, record: null})
+    }
+
+    onPopState(event) {
+        if (!event.state) {
+            // This happens when the user modifies the #... URL part.
+            this.initState()
+        }
+        else {
+            this.setState(event.state)
+        }
+    }
+
+    onRecordChange(event) {
+        const record_id = event.detail
+        this.navigate({record: record_id})
+    }
+
+    static stateURL(state) {
+        const keys = ['job', 'record']
+        const params = new URLSearchParams(Object.fromEntries(
+            keys
+            .filter(k => state.hasOwnProperty(k) && state[k])
+            .map(k => [k, state[k]])
+        ))
+        return `#${params.toString()}`
+    }
+
+    updateModified({modified}) {
+        this.last_modified.textContent = new Date(modified)
+            .toLocaleString('nl-NL', this.locale)
+    }
+}
+
+const average = (array) => array.reduce((a, b) => a + b) / array.length
+
+async function fetchJSON(uri) {
+    return await (await fetch(uri)).json()
+}
+
+function formatSeconds(s) {
+    const padded = i => `0${i}`.slice(-2)
+    const hh = Math.floor(s / 3600)
+    const mm = Math.floor(s / 60 % 60)
+    const ss = Math.floor(s % 60)
+
+    if (hh) {
+        return `${hh}:${padded(mm)}:${padded(ss)}`
+    }
+    else {
+        return `${mm}:${padded(ss)}`
+    }
+}
+
+function groupBy(xs, key) {
+    return xs.reduce(function(rv, x) {
+        (rv[x[key]] = rv[x[key]] || []).push(x)
+        return rv
+    }, {})
+}
+
+function median(numbers) {
+    const sorted = numbers.slice().sort((a, b) => a - b)
+    const middle = Math.floor(sorted.length / 2)
+
+    if (sorted.length % 2 === 0) {
+        return (sorted[middle - 1] + sorted[middle]) / 2
+    }
+
+    return sorted[middle]
+}
+
+const app = new App(document.body, {
+    job: undefined,
+    record: undefined,
+    src: 'data/jobs.json',
+})
+    </script>
+</head>
+<body>
+
+<main>
+    <header>
+        <h1>Amsterdam API mutaties</h1>
+        <em>Laatst bijgewerkt: <span id="last-modified"></span></em>
+    </header>
+
+    <section id="jobs">
+        <table id="jobs-table">
+            <thead>
+            <tr>
+                <th colspan="2"></th>
+                <th colspan="3"><span class="col-group-head">Taken</span></th>
+                <th colspan="2"><span class="col-group-head">Records</span></th>
+                <th colspan="3"><span class="col-group-head">Looptijd</span></th>
+            </tr>
+            <tr>
+                <td colspan="2"></td>
+                <td><span class="col-head col-group-start">Klaar</span></td>
+                <td><span class="col-head">Gefaald</span></td>
+                <td><span class="col-head">Gecrasht</span></td>
+                <td><span class="col-head col-group-start">Nieuw</span></td>
+                <td><span class="col-head">Verwijderd</span></td>
+                <td><span class="col-head col-group-start">Min.</span></td>
+                <td><span class="col-head">Med.</span></td>
+                <td><span class="col-head">Max.</span></td>
+            </tr>
+            </thead>
+        </table>
+    </section>
+
+    <section id="records">
+        <table id="records-table">
+            <thead>
+            <tr>
+                <td><span class="col-head">_id</span></td>
+                <td><span class="col-head">_created</span></td>
+                <td><span class="col-head">_deleted</span></td>
+                <td><span class="col-head col-group-start">id</span></td>
+            </tr>
+            </thead>
+        </table>
+    </section>
+</main>
+
+<template id="template-category">
+    <tbody data-category="">
+        <tr>
+            <td colspan="2"><span class="category-head"><!-- category --></span></td>
+            <td><!-- done --></td>
+            <td><!-- failed --></td>
+            <td><!-- running --></td>
+            <td><!-- created --></td>
+            <td><!-- deleted --></td>
+            <td><!-- min. --></td>
+            <td><!-- avg. --></td>
+            <td><!-- max. --></td>
+        </tr>
+    </tbody>
+</template>
+
+<template id="template-job">
+    <tr>
+        <td><!-- job id --></td>
+        <td><!-- date and time --></td>
+        <td><!-- done --></td>
+        <td><!-- failed --></td>
+        <td><!-- running --></td>
+        <td><!-- created -->></td>
+        <td><!-- deleted --></td>
+        <td><!-- --></td>
+        <td><!-- run time --></td>
+        <td><!-- --></td>
+    </tr>
+</template>
+
+</body>
+</html>
