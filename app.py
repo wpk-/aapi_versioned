@@ -21,17 +21,18 @@ def main(db_config: dict[str, str]) -> None:
         sync = Sync(api, db, log)
 
         # Sync all:
-        sync.sync_all()
+        # sync.sync_all()
 
         # Or sync individual endpoints:
         # sync.afval_bijplaatsingen.pull()
         # sync.afval_containers.pull()
         # sync.afval_vulgraad_sidcon.pull()
         # sync.buurten.pull()
+        sync.meldingen_buurt.pull()
         # ...
 
         # Export summary data for a web UI.
-        write_stats('web/data', sync, log)
+        # write_stats('web/data', sync, log)
 
 
 if __name__ == '__main__':

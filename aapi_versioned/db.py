@@ -13,8 +13,8 @@ from aapi_versioned.models import (
     Model, datetimetz,
     Afvalbijplaatsing, Afvalcluster, Afvalclusterfractie,
     Afvalcontainerlocatie, Afvalcontainer, Afvalcontainertype, Afvalweging,
-    AfvalvulgraadSidcon, MeldingOpenbareRuimte, Buurt, Stadsdeel, Wijk,
-    Winkelgebied,
+    AfvalvulgraadSidcon, MeldingMijnAmsterdam, MeldingOpenbareRuimte,
+    Buurt, Stadsdeel, Wijk, Winkelgebied,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,10 @@ class DB:
         self.meldingen = endpoint(
             'v1_meldingen_meldingen',
             MeldingOpenbareRuimte
+        )
+        self.meldingen_buurt = endpoint(
+            'v1_meldingen_meldingen_buurt',
+            MeldingMijnAmsterdam
         )
 
         # Gebieden

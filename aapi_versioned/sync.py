@@ -92,6 +92,12 @@ class Sync:
             {'datumMelding[gte]': toen},
             {'datumMelding__gte': toen}
         )
+        self.meldingen_buurt = task(
+            api.meldingen_buurt,
+            db.meldingen_buurt,
+            {'datumWijziging[gte]': toen},
+            {'datumWijziging__gte': toen}
+        )
 
         # Gebieden
         # --------

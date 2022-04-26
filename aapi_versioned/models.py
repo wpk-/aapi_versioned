@@ -4,6 +4,7 @@ from typing import NamedTuple, TypeVar
 from aapi.models import (
     Afvalbijplaatsing, Afvalcluster, Afvalclusterfractie, Afvalcontainer,
     Afvalcontainerlocatie, Afvalcontainertype, Afvalweging,
+    MeldingMijnAmsterdam,
     Buurt, Stadsdeel, Wijk, Winkelgebied,
 )
 
@@ -56,5 +57,6 @@ Model = TypeVar(
     'Model',
     Afvalbijplaatsing, Afvalcluster, Afvalclusterfractie, Afvalcontainer,
     Afvalcontainerlocatie, Afvalcontainertype, AfvalvulgraadSidcon,
-    Afvalweging, Buurt, MeldingOpenbareRuimte, Stadsdeel, Wijk, Winkelgebied,
+    Afvalweging, Buurt, MeldingMijnAmsterdam, MeldingOpenbareRuimte, Stadsdeel,
+    Wijk, Winkelgebied,
 )
